@@ -6,6 +6,7 @@ import torch
 
 from nncf.torch.dynamic_graph.graph_tracer import GraphTracer
 from nncf.torch.graph.graph import PTNNCFGraph
+from nncf.torch.graph.graph import PTNNCFEdge
 from nncf.torch.graph.graph import PTNNCFNode
 
 
@@ -30,10 +31,14 @@ class GraphBuilder:
             nncf_graph.add_nncf_node(nncf_node)
 
         for dynamic_graph_edge in traced_graph.get_all_edges():
-            nncf_graph.add_edge_between_nncf_nodes(
+            nncf_edge = PTNNCFEdge(
                 from_node_id=dynamic_graph_edge.from_node_id,
                 to_node_id=dynamic_graph_edge.to_node_id,
-                tensor_shape=dynamic_graph_edge.activation_shape,
-                input_port_id=dynamic_graph_edge.input_port_id
+                data={
+                    PTNNCFGraph.ACTIVATION_SHAPE_EDGE_ATTR: dynamic_graph_edge.activation_shape,
+                    PTNNCFGraph.ACTIVATION_DTYPE_EDGE_ATTR: dynamic_graph_edge.activation_dtype,
+                    PTNNCFGraph.IN_PORT_NAME_EDGE_ATTR: dynamic_graph_edge.input_port_id
+                }
             )
+            nncf_graph.add_edge(nncf_edge)
         return nncf_graph

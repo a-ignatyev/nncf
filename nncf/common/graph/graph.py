@@ -12,14 +12,25 @@
 """
 
 import networkx as nx
+import tensorflow as tf
+import torch
 
-from collections import OrderedDict
-from typing import Any, Callable, Dict, KeysView, List, Tuple, ValuesView
+from typing import Any
+from typing import Optional
+from typing import Callable
+from typing import Dict
+from typing import KeysView
+from typing import List
+from typing import Tuple
+from typing import ValuesView
+from typing import NewType
 
 from nncf.common.graph.module_attributes import BaseModuleAttributes
 
 MODEL_INPUT_OP_NAME = "nncf_model_input"
 MODEL_OUTPUT_OP_NAME = "nncf_model_output"
+
+DType = NewType('DType', Any[torch.dtype, tf.DType])
 
 
 class NNCFNode:
@@ -34,11 +45,11 @@ class NNCFNode:
         self.data = data if data else {}
 
     @property
-    def node_name(self) -> str:
+    def node_name(self) -> Optional[str]:
         return self.data.get(NNCFGraph.KEY_NODE_ATTR)
 
     @property
-    def node_type(self) -> str:
+    def node_type(self) -> Optional[str]:
         return self.data.get(NNCFGraph.NODE_TYPE_ATTR)
 
     @property
@@ -54,9 +65,40 @@ class NNCFNode:
     def __eq__(self, other):
         return isinstance(other, NNCFNode) \
                and self.node_id == other.node_id \
-               and self.data == other.data \
-               and self.node_type == other.node_type \
-               and self.module_attributes == other.module_attributes
+               and self.data == other.data
+
+
+class NNCFEdge:
+    """
+    Class describing edges used in NNCFGraph.
+    """
+    def __init__(self, from_node_id: int, to_node_id: int, data: Dict = None):
+        self.from_node_id = from_node_id
+        self.to_node_id = to_node_id
+        self.data = data if data else {}
+
+    @property
+    def input_port_id(self) -> Optional[int]:
+        return self.data.get(NNCFGraph.IN_PORT_NAME_EDGE_ATTR)
+
+    @property
+    def tensor_shape(self) -> Optional[Tuple[int, ...]]:
+        return self.data.get(NNCFGraph.ACTIVATION_SHAPE_EDGE_ATTR)
+
+    @property
+    def tensor_dtype(self) -> Optional[DType]:
+        return self.data.get(NNCFGraph.ACTIVATION_DTYPE_EDGE_ATTR)
+
+    def __str__(self):
+        return f'{self.from_node_id} -> {self.tensor_shape};{self.tensor_dtype} -> {self.to_node_id}'
+
+    def __hash__(self):
+        return hash(str(self))
+
+    def __eq__(self, other):
+        return isinstance(other, NNCFEdge) \
+               and self.from_node_id == other.from_node_id and self.to_node_id == other.to_node_id \
+               and self.data == other.data
 
 
 class NNCFGraph:
@@ -70,6 +112,7 @@ class NNCFGraph:
     NODE_TYPE_ATTR = 'type'
     MODULE_ATTRIBUTES = 'module_attributes'
     ACTIVATION_SHAPE_EDGE_ATTR = 'activation_shape'
+    ACTIVATION_DTYPE_EDGE_ATTR = 'activation_dtype'
     IN_PORT_NAME_EDGE_ATTR = 'in_port'
 
     def __init__(self):
@@ -180,7 +223,7 @@ class NNCFGraph:
         nx_node_keys = self._nx_graph.pred[self._node_id_to_key_dict[node.node_id]]
         return [self._nx_node_to_nncf_node(self._nx_graph.nodes[key]) for key in nx_node_keys]
 
-    def get_input_edges(self, node: NNCFNode) -> Dict[Tuple[str, str], dict]:
+    def get_input_edges(self, node: NNCFNode) -> List[NNCFEdge]:
         """
         Returns edges of input tensors with description sorted by 'in_port'.
 
@@ -191,7 +234,7 @@ class NNCFGraph:
         input_edges = sorted(list(self._nx_graph.in_edges(nx_node_key)),
                              key=lambda edge: self._nx_graph.edges[edge][NNCFGraph.IN_PORT_NAME_EDGE_ATTR])
 
-        return OrderedDict((edge, self._nx_graph.edges[edge]) for edge in input_edges)
+        return [NNCFEdge(*edge, self._nx_graph.edges[edge]) for edge in input_edges]
 
     def traverse_graph(self,
                        curr_node: NNCFNode,

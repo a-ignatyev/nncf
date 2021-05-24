@@ -33,6 +33,7 @@ from nncf import register_module
 from nncf.common.graph.transformations.commands import TargetType
 from nncf.torch.dynamic_graph.context import PreHookId
 from nncf.torch.dynamic_graph.context import Scope
+from nncf.torch.graph.graph import PTNNCFEdge
 from nncf.torch.graph.graph import PTNNCFNode
 from nncf.torch.graph.graph import NNCFGraph
 from nncf.torch.graph.graph import NNCFNode
@@ -374,8 +375,13 @@ def get_nncf_graph_from_mock_nx_graph(nx_graph: nx.DiGraph) -> PTNNCFGraph:
         for pred_idx, pred in enumerate(preds):
             in_edge = (pred, curr_node_key)
             _, creator_id = edge_vs_output_idx_and_creator_id[in_edge]
-            mock_graph.add_edge_between_nncf_nodes(creator_id, node_id,
-                                                   [1, 1, 1, 1], pred_idx)
+            mock_graph.add_edge(PTNNCFEdge(
+                creator_id, node_id, data={
+                    PTNNCFGraph.ACTIVATION_SHAPE_EDGE_ATTR: [1, 1, 1, 1],
+                    PTNNCFGraph.ACTIVATION_DTYPE_EDGE_ATTR: torch.float,
+                    PTNNCFGraph.IN_PORT_NAME_EDGE_ATTR: pred_idx
+                }
+            ))
 
         for out_idx, out_edge in enumerate(nx_graph.out_edges(curr_node_key)):
             edge_vs_output_idx_and_creator_id[out_edge] = (out_idx, node.node_id)

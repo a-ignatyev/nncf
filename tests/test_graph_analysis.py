@@ -14,7 +14,7 @@ from collections import Counter
 
 from nncf.torch.graph.graph import PTNNCFGraph
 from nncf.torch.graph.graph import NNCFGraphPatternIO
-from nncf.torch.graph.graph import NNCFGraphEdge
+from nncf.torch.graph.graph import PTNNCFEdge
 from nncf.torch.graph.graph import PTNNCFNode
 
 
@@ -48,9 +48,7 @@ def test_graph_pattern_io_building():
     graph._node_id_to_key_dict.update({k + 1: v for k, v in enumerate(node_keys)})
 
     def make_mock_edge(from_id: int, to_id: int):
-
-        return NNCFGraphEdge(make_mock_node(from_id),
-                             make_mock_node(to_id), None)
+        return PTNNCFEdge(from_id, to_id, None)
 
     def make_mock_node(id_: int):
         data_ = {

@@ -24,6 +24,7 @@ import networkx.algorithms.isomorphism as iso
 from networkx.drawing.nx_agraph import to_agraph
 
 from nncf.common.graph.graph import NNCFGraph
+from nncf.common.graph.graph import NNCFEdge
 from nncf.common.graph.graph import NNCFNode
 from nncf.common.graph.module_attributes import BaseModuleAttributes
 from nncf.common.utils.logger import logger as nncf_logger
@@ -50,8 +51,7 @@ class InputAgnosticOperationExecutionContext:
                (self.call_order == other.call_order)
 
     def __str__(self):
-        return str(self.scope_in_model) + '/' + \
-               self.operator_name + "_" + str(self.call_order)
+        return f'{self.scope_in_model}/{self.operator_name}_{self.call_order}'
 
     def __hash__(self):
         return hash((self.operator_name, self.scope_in_model, self.call_order))
@@ -78,7 +78,7 @@ class PTNNCFNode(NNCFNode):
         self.ia_op_exec_context = ia_op_exec_context
 
     @property
-    def node_type(self):
+    def node_type(self) -> Optional[str]:
         if self.ia_op_exec_context:
             return self.ia_op_exec_context.operator_name
         return None
@@ -95,28 +95,18 @@ class PTNNCFNode(NNCFNode):
                and self.ia_op_exec_context == other.ia_op_exec_context
 
 
-class NNCFGraphEdge:
-    def __init__(self, from_node: PTNNCFNode, to_node: PTNNCFNode, tensor_shape: Tuple):
-        self.from_node = from_node
-        self.to_node = to_node
-        self.tensor_shape = tensor_shape
-
-    def __str__(self):
-        return str(self.from_node) + " -> " + str(self.tensor_shape) + " -> " + str(self.to_node)
-
+class PTNNCFEdge(NNCFEdge):
     def __hash__(self):
         return hash(str(self))
 
     def __eq__(self, other):
-        return self.from_node == other.from_node and self.to_node == other.to_node \
-               and self.tensor_shape == other.tensor_shape
+        return isinstance(other, PTNNCFEdge) \
+               and super().__eq__(other)
 
 
 class NNCFGraphPatternIO:
-    def __init__(self, input_edges: List[NNCFGraphEdge], output_edges: List[NNCFGraphEdge],
-                 input_nodes: List[PTNNCFNode],
-                 output_nodes: List[PTNNCFNode],
-                 ):
+    def __init__(self, input_edges: List[PTNNCFEdge], output_edges: List[PTNNCFEdge],
+                 input_nodes: List[PTNNCFNode], output_nodes: List[PTNNCFNode]):
         self.input_edges = input_edges
         self.output_edges = output_edges
         self.input_nodes = input_nodes
@@ -126,8 +116,6 @@ class NNCFGraphPatternIO:
 class PTNNCFGraph(NNCFGraph):
 
     IA_OP_EXEC_CONTEXT_NODE_ATTR = 'ia_op_exec_context'
-    ACTIVATION_SHAPE_EDGE_ATTR = 'activation_shape'
-    IN_PORT_NAME_EDGE_ATTR = 'in_port'
 
     def __init__(self):
         super().__init__()
@@ -167,11 +155,9 @@ class PTNNCFGraph(NNCFGraph):
         if nncf_node.node_type == MODEL_OUTPUT_OP_NAME:
             self._output_nncf_nodes[node_id] = deepcopy(nncf_node)
 
-    def add_edge_between_nncf_nodes(self, from_node_id: int, to_node_id: int,
-                                    tensor_shape: List[int],
-                                    input_port_id: int):
-        from_node_key = self._node_id_to_key_dict[from_node_id]
-        to_node_key = self._node_id_to_key_dict[to_node_id]
+    def add_edge(self, edge: PTNNCFEdge):
+        from_node_key = self._node_id_to_key_dict[edge.from_node_id]
+        to_node_key = self._node_id_to_key_dict[edge.to_node_id]
 
         err_reason = None
 
@@ -179,17 +165,17 @@ class PTNNCFGraph(NNCFGraph):
             err_reason = f"node {from_node_key} not in NNCFGraph"
         if to_node_key not in self._nx_graph.nodes:
             err_reason = f"node {from_node_key} not in NNCFGraph"
-        if from_node_id in self._output_nncf_nodes:
+        if edge.from_node_id in self._output_nncf_nodes:
             err_reason = "cannot add edges *from* output nodes"
-        if to_node_id in self._input_nncf_nodes:
+        if edge.to_node_id in self._input_nncf_nodes:
             err_reason = "cannot add edges *to* input nodes"
 
         if err_reason is not None:
             raise ValueError(f"Cannot add edge from {from_node_key} to {to_node_key} - {err_reason}!")
 
         attrs = {
-            PTNNCFGraph.ACTIVATION_SHAPE_EDGE_ATTR: tensor_shape,
-            PTNNCFGraph.IN_PORT_NAME_EDGE_ATTR: input_port_id
+            PTNNCFGraph.ACTIVATION_SHAPE_EDGE_ATTR: edge.tensor_shape,
+            PTNNCFGraph.IN_PORT_NAME_EDGE_ATTR: edge.input_port_id
         }
         self._nx_graph.add_edge(from_node_key, to_node_key, **attrs)
 
@@ -216,7 +202,7 @@ class PTNNCFGraph(NNCFGraph):
     def get_successors(self, node_name: str):
         return self._nx_graph.successors(node_name)
 
-    def get_successor_nncf_nodes(self, node_id: int) -> List[NNCFNode]:
+    def get_successor_nncf_nodes(self, node_id: int) -> List[PTNNCFNode]:
         key = self.get_node_key_by_id(node_id)
         succs = list(self._nx_graph.successors(key))
         nncf_nodes = [self._nx_node_to_nncf_node(self._nx_graph.nodes[nx_node_key]) for nx_node_key in succs]
@@ -227,10 +213,10 @@ class PTNNCFGraph(NNCFGraph):
         pattern_ios = [self._get_nncf_graph_pattern_io_list(match) for match in matched_node_key_sequences]
         return pattern_ios
 
-    def dump_graph(self, path):
+    def dump_graph(self, path: str):
         nx.drawing.nx_pydot.write_dot(self._get_graph_for_structure_analysis(), path)
 
-    def visualize_graph(self, path):
+    def visualize_graph(self, path: str):
         out_graph = self._get_graph_for_visualization()
         nx.drawing.nx_pydot.write_dot(out_graph, path)
         try:
@@ -371,12 +357,11 @@ class PTNNCFGraph(NNCFGraph):
                 input_nncf_nodes.append(self._nx_node_to_nncf_node(self._nx_graph.nodes[key]))
 
         for nx_edge in boundary:
-            from_node_key = nx_edge[0]
-            to_node_key = nx_edge[1]
-            data = nx_edge[2]
-            nncf_edge = NNCFGraphEdge(self._nx_node_to_nncf_node(self._nx_graph.nodes[from_node_key]),
-                                      self._nx_node_to_nncf_node(self._nx_graph.nodes[to_node_key]),
-                                      data[PTNNCFGraph.ACTIVATION_SHAPE_EDGE_ATTR])
+            from_node_key, to_node_key, data = nx_edge
+            from_node_id = self._nx_graph.nodes[from_node_key][PTNNCFGraph.ID_NODE_ATTR]
+            to_node_id = self._nx_graph.nodes[to_node_key][PTNNCFGraph.ID_NODE_ATTR]
+
+            nncf_edge = PTNNCFEdge(from_node_id, to_node_id, data)
             if from_node_key in match:
                 output_nncf_edges.append(nncf_edge)
             elif to_node_key in match:
@@ -409,12 +394,11 @@ class PTNNCFGraph(NNCFGraph):
                 input_nncf_nodes.append(self._nx_node_to_nncf_node(self._nx_graph.nodes[key]))
 
         for nx_edge in boundary:
-            from_node_key = nx_edge[0]
-            to_node_key = nx_edge[1]
-            data = nx_edge[2]
-            nncf_edge = NNCFGraphEdge(self._nx_node_to_nncf_node(self._nx_graph.nodes[from_node_key]),
-                                      self._nx_node_to_nncf_node(self._nx_graph.nodes[to_node_key]),
-                                      data[PTNNCFGraph.ACTIVATION_SHAPE_EDGE_ATTR])
+            from_node_key, to_node_key, data = nx_edge
+            from_node_id = self._nx_graph.nodes[from_node_key][PTNNCFGraph.ID_NODE_ATTR]
+            to_node_id = self._nx_graph.nodes[to_node_key][PTNNCFGraph.ID_NODE_ATTR]
+
+            nncf_edge = PTNNCFEdge(from_node_id, to_node_id, data)
             if from_node_key in match:
                 output_nncf_edges.append(nncf_edge)
             elif to_node_key in match:
@@ -426,7 +410,7 @@ class PTNNCFGraph(NNCFGraph):
                                   input_nncf_nodes, output_nncf_nodes)
 
     @staticmethod
-    def _nx_node_to_nncf_node(nx_node) -> 'PTNNCFNode':
+    def _nx_node_to_nncf_node(nx_node) -> PTNNCFNode:
         return PTNNCFNode(nx_node[PTNNCFGraph.ID_NODE_ATTR],
                           nx_node[PTNNCFGraph.IA_OP_EXEC_CONTEXT_NODE_ATTR],
                           nx_node)

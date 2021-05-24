@@ -5,6 +5,7 @@ from typing import Tuple
 
 import networkx as nx
 import networkx.algorithms.isomorphism as iso
+import torch
 from torch import Tensor
 
 from nncf.common.utils.logger import logger as nncf_logger
@@ -72,7 +73,6 @@ class DefaultInputsMatcher(InputsMatcher):
         return True
 
 
-
 class OperationExecutionContext:
     """Information that allows to uniquely identify an operation inside the NNCF graph,
     i.e. determine whether an execution of the operator inside the module has already been
@@ -103,17 +103,14 @@ class OperationExecutionContext:
                      tuple(self.tensor_metas)))
 
     def __str__(self):
-        input_info_str = ""
+        input_info_str_parts = []
         for meta in self.tensor_metas:
-            if meta is None:
-                input_info_str += "N;"
-            else:
-                input_info_str += str(meta) + ";"
-
-        return super().__str__() + '(' + input_info_str + ')'
+            input_info_str_parts.append('N' if meta is None else str(meta))
+        input_info_str = ';'.join(input_info_str_parts)
+        return f'{super().__str__()}({input_info_str})'
 
     @property
-    def operator_name(self):
+    def operator_name(self) -> str:
         return self.input_agnostic.operator_name
 
     @property
@@ -121,7 +118,7 @@ class OperationExecutionContext:
         return self.input_agnostic.scope_in_model
 
     @property
-    def call_order(self):
+    def call_order(self) -> int:
         return self.input_agnostic.call_order
 
 
@@ -142,10 +139,12 @@ class DynamicGraphNode:
 
 class DynamicGraphEdge:
     def __init__(self, from_node_id: int, to_node_id: int,
-                 activation_shape: List[int], input_port_id: int):
+                 activation_shape: Tuple[int, ...], activation_dtype: torch.dtype,
+                 input_port_id: int):
         self.from_node_id = from_node_id
         self.to_node_id = to_node_id
         self.activation_shape = activation_shape
+        self.activation_dtype = activation_dtype
         self.input_port_id = input_port_id
 
 
@@ -215,6 +214,7 @@ class DefaultScopeNodeMatcher:
             self._nx_graph.add_edge(parent, node_key)
             has_traced_inputs = True
             self._nx_graph.edges[parent, node_key][DynamicGraph.ACTIVATION_SHAPE_EDGE_ATTR] = info.shape
+            self._nx_graph.edges[parent, node_key][DynamicGraph.ACTIVATION_DTYPE_EDGE_ATTR] = info.dtype
             self._nx_graph.edges[parent, node_key][DynamicGraph.IN_PORT_NAME_EDGE_ATTR] = i
 
 
@@ -426,6 +426,7 @@ class DynamicGraph:
     MODULE_ATTRIBUTES = 'module_attributes'
     OP_EXEC_CONTEXT_NODE_ATTR = 'op_exec_context'
     ACTIVATION_SHAPE_EDGE_ATTR = 'activation_shape'
+    ACTIVATION_DTYPE_EDGE_ATTR = 'activation_dtype'
     IN_PORT_NAME_EDGE_ATTR = 'in_port'
 
     def __init__(self):
@@ -501,6 +502,7 @@ class DynamicGraph:
                 from_node_id=from_node_id,
                 to_node_id=to_node_id,
                 activation_shape=nx_edge_attrs[DynamicGraph.ACTIVATION_SHAPE_EDGE_ATTR],
+                activation_dtype=nx_edge_attrs[DynamicGraph.ACTIVATION_DTYPE_EDGE_ATTR],
                 input_port_id=nx_edge_attrs[DynamicGraph.IN_PORT_NAME_EDGE_ATTR])
 
             all_edges.append(dynamic_graph_edge)

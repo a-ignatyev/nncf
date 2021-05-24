@@ -37,18 +37,18 @@ class ModelInputInfo:
                 raise RuntimeError("Unknown input filler type: {}".format(filler))
 
     @staticmethod
-    def _string_to_torch_type(string):
+    def _string_to_torch_type(string: str) -> torch.dtype:
         if string == "long":
             return torch.long
         return torch.float32
 
     @staticmethod
-    def torch_type_to_string(dtype: torch.dtype):
+    def torch_type_to_string(dtype: torch.dtype) -> str:
         if dtype is torch.long:
             return "long"
         return "float"
 
-    def is_integer_input(self):
+    def is_integer_input(self) -> bool:
         return self.type != torch.float32
 
     def __eq__(self, other):

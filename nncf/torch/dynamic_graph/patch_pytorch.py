@@ -55,6 +55,7 @@ class ForwardTraceOnly(CustomTraceFunction):
                 for out_idx in output_tensors_to_be_traced_indices:
                     forwarded_meta = deepcopy(fargs[input_traced_tensor_indices[0]].tensor_meta)
                     forwarded_meta.shape = tuple(result[out_idx].shape)
+                    forwarded_meta.dtype = tuple(result[out_idx].dtype)
                     result[out_idx] = TracedTensor.from_torch_tensor(result[out_idx],
                                                                      forwarded_meta)
             elif len(input_traced_tensor_indices) != len(output_tensors_to_be_traced_indices):
@@ -65,6 +66,7 @@ class ForwardTraceOnly(CustomTraceFunction):
                 for in_idx, out_idx in zip(input_traced_tensor_indices, output_tensors_to_be_traced_indices):
                     forwarded_meta = deepcopy(fargs[in_idx].tensor_meta)
                     forwarded_meta.shape = tuple(result[out_idx].shape)
+                    forwarded_meta.dtype = tuple(result[out_idx].dtype)
                     result[out_idx] = TracedTensor.from_torch_tensor(result[out_idx],
                                                                      forwarded_meta)
             if was_tuple:
@@ -75,6 +77,7 @@ class ForwardTraceOnly(CustomTraceFunction):
         elif input_traced_tensor_indices:
             forwarded_meta = deepcopy(fargs[input_traced_tensor_indices[0]].tensor_meta)
             forwarded_meta.shape = tuple(result.shape)
+            forwarded_meta.dtype = tuple(result.dtype)
             return TracedTensor.from_torch_tensor(result,
                                                   forwarded_meta)
         # No traced tensors in input, return a usual torch.Tensor as well
