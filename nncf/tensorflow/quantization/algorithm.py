@@ -11,10 +11,7 @@
  limitations under the License.
 """
 from copy import deepcopy
-from typing import Any
-from typing import Dict
-from typing import List
-from typing import Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import tensorflow as tf
 
@@ -394,9 +391,11 @@ class QuantizationBuilder(TFCompressionAlgorithmBuilder):
 
                     half_range = self._get_half_range(qconfig)
                     applied_saturation_fix = applied_saturation_fix or half_range
+                    compression_lr_multiplier = self._get_compression_lr_multiplier()
                     quantizer_spec = TFQuantizerSpec.from_config(qconfig,
                                                                  narrow_range=not half_range,
-                                                                 half_range=half_range)
+                                                                 half_range=half_range,
+                                                                 compression_lr_multiplier=compression_lr_multiplier)
                     target_point = TFLayerWeight(layer_info.layer_name, weight_def.weight_attr_name)
                     qpoint = TFQuantizationPoint(op_name, quantizer_spec, target_point)
                     setup.add_quantization_point(qpoint)
@@ -407,7 +406,9 @@ class QuantizationBuilder(TFCompressionAlgorithmBuilder):
                 target_node_name = ip.target_node_name
                 input_port_id = ip.input_port_id
                 fake_quantize_name = self._get_fake_quantize_name(target_node_name, input_port_id)
-                quantizer_spec = TFQuantizerSpec.from_config(qp.qconfig, narrow_range=False, half_range=False)
+                compression_lr_multiplier = self._get_compression_lr_multiplier()
+                quantizer_spec = TFQuantizerSpec.from_config(qp.qconfig, narrow_range=False, half_range=False,
+                                                             compression_lr_multiplier=compression_lr_multiplier)
                 fake_quantize_layer = FakeQuantize(
                     quantizer_spec,
                     name=fake_quantize_name)
@@ -564,6 +565,10 @@ class QuantizationBuilder(TFCompressionAlgorithmBuilder):
 
     def _get_quantizer_operation_name(self, layer_name, weight_attr_name):
         return f'{layer_name}_{weight_attr_name}_quantizer'
+
+    def _get_compression_lr_multiplier(self) -> Optional[float]:
+        return self.config.get_redefinable_global_param_value_for_algo('compression_lr_multiplier',
+                                                                       self.name)
 
 
 class QuantizationController(BaseCompressionAlgorithmController):

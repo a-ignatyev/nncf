@@ -14,6 +14,7 @@
 import tensorflow as tf
 
 from nncf.common.quantization.structs import QuantizationMode
+from nncf.tensorflow.functions import get_id_with_multiplied_grad
 from nncf.tensorflow.layers.custom_objects import NNCF_CUSTOM_OBJECTS
 from nncf.tensorflow.layers.custom_objects import NNCF_QUANTIZATION_OPERATONS
 from nncf.tensorflow.layers.operation import InputType
@@ -33,7 +34,8 @@ class FakeQuantize(tf.keras.layers.Layer):
 
         self._op_name = f'{self.name}_quantizer'
         self._quantizer = self._create_quantizer(config, self._op_name)
-        self._quantizer_weights = {}
+        self._quantizer_weights_dict = {}
+        self.id_with_multiplied_grad = get_id_with_multiplied_grad(config.compression_lr_multiplier)
 
     @property
     def num_bits(self):
@@ -79,6 +81,24 @@ class FakeQuantize(tf.keras.layers.Layer):
     def enabled(self, v):
         self._quantizer.enabled = v
 
+    @property
+    def _quantizer_weights(self):
+        res = {}
+        for k in self._quantizer_weights_dict:
+            res[k] = self.id_with_multiplied_grad(self._quantizer_weights_dict[k])
+        return res
+
+    @property
+    def _real_quantizer_weights(self):
+        res = {}
+        for k in self._quantizer_weights_dict:
+            res[k] = self._quantizer_weights_dict[k]
+        return res
+
+    @_quantizer_weights.setter
+    def _quantizer_weights(self, value):
+        self._quantizer_weights_dict = value
+
     def build(self, input_shape):
         self._quantizer_weights = self._quantizer.build(
             input_shape, InputType.INPUTS, self.name, self)
@@ -91,7 +111,7 @@ class FakeQuantize(tf.keras.layers.Layer):
         return self._quantizer.register_hook_pre_call(hook)
 
     def apply_range_initialization(self, min_values, max_values, min_range=0.1, eps=0.01):
-        self._quantizer.apply_range_initialization(self._quantizer_weights, min_values, max_values, min_range, eps)
+        self._quantizer.apply_range_initialization(self._real_quantizer_weights, min_values, max_values, min_range, eps)
 
     def _create_quantizer(self, qspec: TFQuantizerSpec, op_name: str) -> Quantizer:
         quantizer_cls = NNCF_QUANTIZATION_OPERATONS.get(qspec.mode)
